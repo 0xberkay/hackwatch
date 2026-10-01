@@ -57,7 +57,7 @@ Tek repoda iki parça:
 ```sh
 git clone https://github.com/0xberkay/hackwatch.git
 cd hackwatch
-python3 target/app.py            # 0.0.0.0:8000 dinler
+./target/serve.sh            # 0.0.0.0:8000 dinler, her nuke sonrası yeniden başlatır
 ```
 
 Saatten makinenin LAN adresine eriş, örn. `http://192.168.1.20:8000`.

@@ -58,7 +58,7 @@ Two pieces, one repository:
 ```sh
 git clone https://github.com/0xberkay/hackwatch.git
 cd hackwatch
-python3 target/app.py            # listens on 0.0.0.0:8000
+./target/serve.sh            # listens on 0.0.0.0:8000, restarts after each nuke
 ```
 
 On the watch, reach it at the machine's LAN address, e.g. `http://192.168.1.20:8000`.

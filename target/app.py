@@ -458,6 +458,8 @@ class LabHandler(BaseHTTPRequestHandler):
             return self.api_boom(params)
         if route == "/admin":
             return self._reply(403, page_forbidden())
+        if route == "/health":
+            return self._reply(200, "ok\n", "text/plain; charset=utf-8")
         if route == "/robots.txt":
             return self._reply(200, ROBOTS, "text/plain; charset=utf-8")
         if route == "/.env":
