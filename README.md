@@ -80,6 +80,13 @@ sudo ufw allow 8000/tcp
 **3. Point it at the lab and go:**
 
 ```sh
+hack                           # finds the lab, runs everything, drops the site
+```
+
+`hack` scans the LAN for the lab the first time and remembers it, so the next
+run starts instantly. Step by step, if you prefer:
+
+```sh
 hackwatch target http://192.168.1.20:8000
 hackwatch recon                  # fingerprint + exposed files
 hackwatch sqli                   # ' OR 1=1--  -> ACCESS GRANTED

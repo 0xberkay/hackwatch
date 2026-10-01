@@ -79,6 +79,13 @@ sudo ufw allow 8000/tcp
 **3. Hedefi ayarla ve başla:**
 
 ```sh
+hack                           # lab'ı bulur, her şeyi çalıştırır, siteyi düşürür
+```
+
+`hack` ilk seferde lab'ı LAN'de bulur ve hatırlar, sonraki çalıştırmalar anında
+başlar. Adım adım istersen:
+
+```sh
 hackwatch target http://192.168.1.20:8000
 hackwatch recon                  # parmak izi + açık dosyalar
 hackwatch sqli                   # ' OR 1=1--  -> ACCESS GRANTED

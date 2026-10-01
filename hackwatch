@@ -46,6 +46,13 @@ wrist_say()     { have wt-tts     && wt-tts "$1" >/dev/null 2>&1 & }
 
 TARGET_FILE="${HOME:-${TMPDIR:-/tmp}}/.hackwatch_target"
 TMP_BASE="${TMPDIR:-/tmp}"
+# mksh (Android's /system/bin/sh) spills heredocs into temp files, and wants an
+# absolute TMPDIR for that. Make it absolute and export it for every child.
+case "$TMP_BASE" in
+    /*) ;;
+    *) TMP_BASE=$(cd "$TMP_BASE" 2>/dev/null && pwd) || TMP_BASE="/tmp" ;;
+esac
+export TMPDIR="$TMP_BASE"
 TMP=$(mktemp -d "$TMP_BASE/hackwatch.XXXXXX" 2>/dev/null) \
     || TMP=$(mktemp -d 2>/dev/null) \
     || TMP="$TMP_BASE/hackwatch.$$"
@@ -57,9 +64,137 @@ cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT INT TERM
 
 URL=""
+URL_EXPLICIT=0
 [ -f "$TARGET_FILE" ] && URL=$(cat "$TARGET_FILE" 2>/dev/null)
 
 need_url() { [ -n "$URL" ] || die "no target. run: hackwatch target <url>"; }
+
+# True when $1 answers like the lab.
+lab_alive() {
+    headers=$(curl -s -m 4 -D - -o /dev/null "$1/" 2>/dev/null || true)
+    printf '%s\n' "$headers" | grep -qi '^x-hackwatch-lab: *1'
+}
+
+# Our own IPv4, so the sweep knows which /24 to walk.
+#
+# Order matters: inside the Wear Term app there is no netlink (the sandbox
+# denies it), but wt-net knows the address anyway. Everywhere else the
+# ip command works.
+own_ip() {
+    if have wt-net; then
+        ip4=$(wt-net 2>/dev/null \
+            | sed -n 's/^address=\([0-9][0-9.]*\)$/\1/p' \
+            | grep -v '^127\.' | head -1)
+        if [ -n "$ip4" ]; then
+            printf '%s' "$ip4"
+            return 0
+        fi
+    fi
+    ip4=$(ip route get 1.1.1.1 2>/dev/null \
+        | sed -n 's/.*src \([0-9][0-9.]*\).*/\1/p' | head -1)
+    if [ -z "$ip4" ]; then
+        ip4=$(ip -o -4 addr show up 2>/dev/null | grep -v ' 127\.' \
+            | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -1)
+    fi
+    printf '%s' "$ip4"
+}
+
+# Last resort: no API and no netlink. Ping the usual gateways in parallel;
+# whichever answers names the subnet we are standing in.
+guess_base() {
+    gw="$TMP/gw"
+    : > "$gw"
+    for base in 192.168.0 192.168.1 192.168.2 192.168.4 192.168.10 \
+                192.168.43 10.0.0 172.20.10; do
+        (ping -c1 -W1 "$base.1" >/dev/null 2>&1 && echo "$base" >> "$gw") &
+    done
+    wait
+    head -1 "$gw"
+}
+
+# One probe: shout into one address, write it down if the lab answers.
+probe() { # $1=ip $2=port $3=found-file
+    body=$(curl -s -m 1 "http://$1:$2/.well-known/hackwatch" 2>/dev/null || true)
+    case "$body" in
+        *hackwatch-lab*) printf 'http://%s:%s\n' "$1" "$2" >> "$3" ;;
+    esac
+}
+
+# Same probe, but answered directly: prints the URL when it is the lab.
+check_host() { # $1=ip $2=port
+    body=$(curl -s -m 2 "http://$1:$2/.well-known/hackwatch" 2>/dev/null || true)
+    case "$body" in
+        *hackwatch-lab*) printf 'http://%s:%s\n' "$1" "$2"; return 0 ;;
+    esac
+    return 1
+}
+
+# Walk the local /24 in the background, in batches so the watch survives it.
+# Prints the first lab URL found.
+sweep() { # $1=base $2=port $3=found-file $4=own-ip
+    i=1
+    in_flight=0
+    while [ "$i" -lt 255 ]; do
+        ip="$1.$i"
+        if [ "$ip" != "$4" ]; then
+            probe "$ip" "$2" "$3" &
+            in_flight=$(( in_flight + 1 ))
+        fi
+        if [ "$in_flight" -ge 64 ]; then
+            wait
+            in_flight=0
+            [ -s "$3" ] && return 0
+            printf '.' >&2
+        fi
+        i=$(( i + 1 ))
+    done
+    wait
+    printf '\n' >&2
+    [ -s "$3" ]
+}
+
+# Find the lab on this LAN. Prints its URL. Checks an explicit
+# $HACKWATCH_TARGET first, then sweeps the local /24 on $HACKWATCH_PORTS.
+find_lab() {
+    if [ -n "${HACKWATCH_TARGET:-}" ]; then
+        base="${HACKWATCH_TARGET%/}"
+        case "$base" in
+            *:*)
+                lab_alive "$base" && { printf '%s\n' "$base"; return 0; } ;;
+            *)
+                for p in ${HACKWATCH_PORTS:-8000}; do
+                    lab_alive "$base:$p" && { printf '%s\n' "$base:$p"; return 0; }
+                done ;;
+        esac
+        return 1
+    fi
+    ip4=$(own_ip)
+    if [ -n "$ip4" ]; then
+        base="${ip4%.*}"
+    elif [ -n "${HACKWATCH_SUBNET:-}" ]; then
+        base="$HACKWATCH_SUBNET"
+    else
+        base=$(guess_base) || return 1
+    fi
+    [ -n "$base" ] || return 1
+    found="$TMP/find"
+    : > "$found"
+    for p in ${HACKWATCH_PORTS:-8000}; do
+        # Ourselves first: the lab often runs on the machine in your hand.
+        hit=$(check_host "$ip4" "$p") \
+            || hit=$(check_host "127.0.0.1" "$p") \
+            || true
+        if [ -n "$hit" ]; then
+            printf '%s\n' "$hit"
+            return 0
+        fi
+        if sweep "$base" "$p" "$found" "$ip4"; then
+            head -1 "$found"
+            return 0
+        fi
+    done
+    return 1
+}
 
 label() { # pad a label to the width used by the report lines
     printf '%-16s' "$1"
@@ -67,8 +202,29 @@ label() { # pad a label to the width used by the report lines
 
 # --- guardrail ------------------------------------------------------------
 
+# Attack commands call this, not need_url: an explicit URL is used as-is,
+# a cached URL is rechecked, and with neither the LAN is swept for the lab.
+# Whatever wins is written back to the cache.
+resolve_target() {
+    if [ -n "$URL" ] && [ "$URL_EXPLICIT" = "1" ]; then
+        return 0
+    fi
+    if [ -n "$URL" ] && lab_alive "$URL"; then
+        return 0
+    fi
+    if [ -n "$URL" ]; then
+        warn "cached target is dead; scanning LAN..."
+    else
+        info "no target set; scanning LAN for the lab..."
+    fi
+    found=$(find_lab) || die "no hackwatch lab on this LAN (start it: python3 target/app.py)"
+    URL="$found"
+    printf '%s\n' "$URL" > "$TARGET_FILE" 2>/dev/null || true
+    ok "target: $URL"
+}
+
 ensure_lab() {
-    need_url
+    resolve_target
     headers=$(curl -s -m 10 -D - -o /dev/null "$URL/" 2>/dev/null || true)
     printf '%s\n' "$headers" | grep -qi '^x-hackwatch-lab: *1' \
         || die "refusing: $URL is not a hackwatch lab (no X-HackWatch-Lab header)"
@@ -166,6 +322,7 @@ cmd_help() {
 usage: hackwatch <command> [url] [args]
 
   target <url>     remember the lab url (so you can skip typing it)
+  find             scan the LAN for the lab and remember it
   status           is the lab up?
   recon            fingerprint the target and probe well-known paths
   sqli             bypass the login form with SQL injection
@@ -175,6 +332,7 @@ usage: hackwatch <command> [url] [args]
   shell            interactive shell over the command injection
   nuke --yes       wipe the database and kill the server
   auto --yes       full chain: recon, sqli, loot, nuke. no stops.
+                   finds the lab itself when no url is given
                    (`hack` runs this: one word, total compromise)
   banner           print the banner
   help             this text
@@ -182,6 +340,11 @@ usage: hackwatch <command> [url] [args]
 environment:
   HACKWATCH_PLAIN=1   no colours
   HACKWATCH_COLOR=1   force colours when piped
+  HACKWATCH_TARGET=u  check this base url first when finding the lab
+  HACKWATCH_SUBNET=192.168.1
+                      pin the /24 swept by find (default: auto-detect)
+  HACKWATCH_PORTS="8000 80"
+                      ports swept by find (default: 8000)
 
 Only ever point this at the hackwatch lab. Everything else is refused.
 EOF
@@ -191,6 +354,14 @@ cmd_target() {
     [ $# -gt 0 ] || die "usage: hackwatch target <url>"
     printf '%s\n' "${1%/}" > "$TARGET_FILE"
     ok "target set: $1"
+}
+
+cmd_find() {
+    info "scanning LAN for the lab..."
+    found=$(find_lab) || die "no hackwatch lab on this LAN (start it: python3 target/app.py)"
+    printf '%s\n' "$found" > "$TARGET_FILE" 2>/dev/null || true
+    URL="$found"
+    ok "found and remembered: $found"
 }
 
 cmd_status() {
@@ -416,10 +587,10 @@ main() {
     shift 2>/dev/null || true
 
     case "$cmd" in
-        target|help|banner) ;;
+        target|help|banner|find) ;;
         *)
             case "${1:-}" in
-                http://*|https://*) URL="${1%/}"; shift ;;
+                http://*|https://*) URL="${1%/}"; URL_EXPLICIT=1; shift ;;
             esac
             ;;
     esac
@@ -428,6 +599,7 @@ main() {
         help|-h|--help) cmd_help ;;
         banner)         banner ;;
         target)         cmd_target "$@" ;;
+        find)           cmd_find ;;
         status)         cmd_status ;;
         recon)          cmd_recon ;;
         sqli)           cmd_sqli ;;
