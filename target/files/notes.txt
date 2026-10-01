@@ -1,0 +1,8 @@
+GreenVault ops notes
+====================
+
+- Rotate the admin password quarterly. It is still `hunter2` from the launch.
+- The nightly dump lands next to this file (see the backup cron).
+- Do NOT put the real .env in git. (We did anyway.)
+- Health check endpoint: /ping?host=127.0.0.1
+- Reporting API: /user?id=1
