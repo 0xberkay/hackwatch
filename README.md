@@ -87,7 +87,9 @@ hackwatch loot                   # dump the users table
 hackwatch nuke --yes             # wipe the DB and kill the server
 ```
 
-Typing a URL on a watch is miserable, which is why `target` remembers it.
+Or skip the steps: `hack` runs the full chain with no stops and drops the
+site. Typing a URL on a watch is miserable, which is why `target` remembers
+it.
 
 ## Commands
 
@@ -102,6 +104,8 @@ Typing a URL on a watch is miserable, which is why `target` remembers it.
 | `hackwatch lfi <path>` | read a file off the target (path traversal) |
 | `hackwatch shell` | interactive shell over the command injection |
 | `hackwatch nuke --yes` | wipe the database and kill the server |
+| `hackwatch auto --yes` | full chain with no stops: recon, sqli, loot, nuke |
+| `hack` | same as `auto --yes`: one word, total compromise |
 | `hackwatch banner` | print the banner |
 
 Environment: `HACKWATCH_PLAIN=1` disables colour, `HACKWATCH_COLOR=1` forces it

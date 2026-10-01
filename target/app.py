@@ -22,7 +22,7 @@ import sqlite3
 import subprocess
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FILES_DIR = os.path.join(BASE_DIR, "files")
@@ -43,15 +43,14 @@ TOKENS = [
     (3, "hw_live_7a9c1e3b5d7f9a1c3e5b7d9f1a3c5e7b"),
 ]
 
-STYLE = """<style>
-body{background:#0b0f0a;color:#9fe870;font-family:ui-monospace,Menlo,Consolas,monospace;
-     max-width:640px;margin:40px auto;padding:0 16px;line-height:1.5}
-h1{font-size:1.4rem;border-bottom:1px solid #274020;padding-bottom:8px}
-a{color:#9fe870} .muted{color:#5d7a4e;font-size:.85rem}
-input{background:#111a0e;border:1px solid #274020;color:#9fe870;padding:10px;width:100%;box-sizing:border-box;margin:4px 0}
-button{margin-top:12px;background:#9fe870;color:#0b0f0a;border:0;padding:10px 18px;font-weight:bold;cursor:pointer}
-.box{border:1px solid #274020;padding:14px 16px;margin-top:16px}
-</style>"""
+PRODUCTS = [
+    ("🔐", "Vault Starter", "One vault, two devices, zero fuss.", 4.99),
+    ("🧰", "Vault Team", "Shared vaults for small teams.", 12.00),
+    ("🏦", "Vault Enterprise", "Audit logs, SSO and a sticker.", 49.00),
+    ("🔑", "Hardware Key", "A physical key for your vault.", 29.00),
+    ("📱", "Mobile Add-on", "Your secrets on the train.", 3.50),
+    ("🧊", "Cold Storage", "Air-gapped, sunglasses included.", 99.00),
+]
 
 LAB_MARKER = '{"app":"hackwatch-lab","version":1,"purpose":"deliberately vulnerable"}\n'
 
@@ -89,12 +88,287 @@ def fake_env():
     ) % (DB_PATH, DB_PATH)
 
 
-def page_head(title):
-    return (
-        "<!doctype html><html><head><meta charset=\"utf-8\">"
-        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-        "<title>%s</title>%s</head><body>\n"
-    ) % (title, STYLE)
+# --------------------------------------------------------------------------
+# the look
+# --------------------------------------------------------------------------
+
+FAVICON = quote(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+    '<rect width="100" height="100" rx="22" fill="#059669"/>'
+    '<text x="50" y="68" font-size="52" text-anchor="middle">'
+    "&#128274;</text></svg>"
+)
+
+CSS = """
+:root{--bg:#f4f7f5;--card:#ffffff;--ink:#0f172a;--muted:#64748b;
+--brand:#059669;--brand-dark:#047857;--line:#e2e8f0;--danger:#dc2626}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,
+"Helvetica Neue",Arial,sans-serif;color:var(--ink);background:var(--bg);
+line-height:1.6}
+a{color:var(--brand-dark);text-decoration:none}
+a:hover{text-decoration:underline}
+h1,h2,h3{line-height:1.25;margin:0 0 .5rem}
+p{margin:.25rem 0 1rem}
+.nav{position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;
+align-items:center;padding:12px 24px;background:rgba(255,255,255,.92);
+backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.brand{display:flex;gap:10px;align-items:center;font-weight:700;font-size:17px;
+color:var(--ink);letter-spacing:-.01em}
+.brand:hover{text-decoration:none}
+.brand .dot{width:28px;height:28px;border-radius:9px;color:#fff;font-size:15px;
+display:grid;place-items:center;
+background:linear-gradient(135deg,#10b981,#047857);flex:none}
+.nav-links{display:flex;gap:18px;align-items:center;font-size:14px}
+.hero{color:#ecfdf5;text-align:center;padding:72px 24px 84px;
+background:linear-gradient(165deg,#022c22 0%,#065f46 55%,#047857 100%)}
+.hero h1{font-size:clamp(30px,5vw,46px);letter-spacing:-.02em;margin-bottom:12px}
+.hero p{max-width:580px;margin:0 auto 28px;color:#a7f3d0;font-size:17px}
+.hero .actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.wave{display:block;width:100%;height:48px;margin-bottom:-1px}
+.btn{display:inline-block;padding:12px 20px;border-radius:11px;border:0;
+font-weight:600;font-size:15px;cursor:pointer;text-decoration:none}
+.btn:hover{text-decoration:none;filter:brightness(.95)}
+.btn-primary{background:var(--brand);color:#fff}
+.btn-ghost{background:rgba(255,255,255,.12);color:#ecfdf5;
+border:1px solid rgba(255,255,255,.25)}
+.btn-sm{padding:8px 14px;font-size:13px;border-radius:9px}
+.section{max-width:980px;margin:0 auto;padding:40px 24px}
+.section h2{font-size:24px;letter-spacing:-.01em}
+.section .lead{color:var(--muted);margin-bottom:28px}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,
+minmax(230px,1fr));margin-top:24px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;
+padding:20px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+.card h3{font-size:16px;display:flex;gap:8px;align-items:center}
+.card .price{color:var(--brand-dark);font-weight:700;margin:6px 0 0}
+.card p{color:var(--muted);font-size:14px;margin:6px 0 0}
+.tile{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;
+font-size:22px;background:linear-gradient(135deg,#d1fae5,#a7f3d0);
+margin-bottom:12px}
+.auth{max-width:400px;margin:56px auto 72px;padding:0 24px}
+.auth .card{padding:30px}
+.auth h1{font-size:22px;margin-bottom:4px}
+.auth .sub{color:var(--muted);font-size:14px;margin-bottom:20px}
+.field{margin:14px 0}
+.field label{display:block;font-size:13px;color:var(--muted);
+margin-bottom:6px;font-weight:600}
+.field input{width:100%;padding:12px 13px;font-size:15px;border:1px solid
+var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+.field input:focus{outline:2px solid #a7f3d0;border-color:var(--brand)}
+.btn-block{width:100%;margin-top:8px}
+.alert{border-radius:10px;padding:11px 13px;font-size:14px;margin-bottom:6px}
+.alert-error{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
+.dash{max-width:820px;margin:36px auto 72px;padding:0 24px}
+.dash-head{display:flex;justify-content:space-between;align-items:center;
+gap:12px;flex-wrap:wrap;margin-bottom:24px}
+.badge{display:inline-block;background:#d1fae5;color:#065f46;
+border-radius:999px;padding:3px 11px;font-size:12px;font-weight:700}
+.stats{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,
+minmax(160px,1fr));margin-bottom:24px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:14px;
+padding:16px}
+.stat .k{font-size:12px;color:var(--muted);font-weight:600;
+text-transform:uppercase;letter-spacing:.04em}
+.stat .v{font-size:22px;font-weight:700;margin-top:2px}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.empty{text-align:center;color:var(--muted);padding:36px 12px}
+.empty .big{font-size:34px;margin-bottom:8px}
+.footer{border-top:1px solid var(--line);background:#fff;margin-top:56px;
+padding:28px 24px;text-align:center;color:var(--muted);font-size:13px}
+.footer a{margin:0 6px}
+.center{text-align:center}
+"""
+
+BASE_HEAD = (
+    "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+    "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+    "<title>%s</title>"
+    "<link rel=\"icon\" href=\"data:image/svg+xml,%s\">"
+    "<style>%s</style></head><body>"
+) % ("GreenVault — keep your secrets safe", FAVICON, CSS)
+
+NAV = (
+    "<nav class=\"nav\"><a class=\"brand\" href=\"/\">"
+    "<span class=\"dot\">&#128274;</span>GreenVault</a>"
+    "<div class=\"nav-links\">"
+    "<a href=\"/products\">Products</a>"
+    "<a href=\"/search\">Search</a>"
+    "<a class=\"btn btn-primary btn-sm\" href=\"/login\">Sign in</a>"
+    "</div></nav>"
+)
+
+FOOTER = (
+    "<footer class=\"footer\">&#169; 2026 GreenVault Inc. &middot; "
+    "<a href=\"/products\">Products</a> &middot; "
+    "<a href=\"/search\">Search</a> &middot; "
+    "<a href=\"/login\">Sign in</a><br>"
+    "<span class=\"mono\">dev instance &middot; internal use only</span>"
+    "</footer></body></html>"
+)
+
+
+def layout(body):
+    return BASE_HEAD + NAV + body + FOOTER
+
+
+def page_landing():
+    tiles = "".join(
+        "<div class=\"card\"><div class=\"tile\">%s</div>"
+        "<h3>%s</h3><p>%s</p></div>"
+        % (icon, name, blurb)
+        for icon, name, blurb in [
+            ("🛡️", "Encrypted at rest", "AES-256, or so the intern said."),
+            ("🌍", "Everywhere you are", "Sync that usually keeps up."),
+            ("🤝", "Trusted by dozens", "Two of them Fortune 5000."),
+        ]
+    )
+    return layout(
+        "<header class=\"hero\">"
+        "<h1>Your secrets, kept properly.</h1>"
+        "<p>GreenVault stores the things you should not be typing into chat "
+        "windows. Bank-grade security, small-business pricing.</p>"
+        "<div class=\"actions\">"
+        "<a class=\"btn btn-primary\" href=\"/login\">Sign in</a>"
+        "<a class=\"btn btn-ghost\" href=\"/products\">Browse products</a>"
+        "</div></header>"
+        "<svg class=\"wave\" viewBox=\"0 0 1200 48\" preserveAspectRatio=\"none\">"
+        "<path d=\"M0,48 C200,0 400,40 600,16 C800,-8 1000,32 1200,8 L1200,48 Z\" "
+        "fill=\"#f4f7f5\"/></svg>"
+        "<main class=\"section\"><h2>Why GreenVault</h2>"
+        "<p class=\"lead\">A place for passwords, keys and the note that says "
+        "where the actual keys are.</p>"
+        "<div class=\"grid\">%s</div></main>" % tiles
+    )
+
+
+def page_products():
+    cards = "".join(
+        "<div class=\"card\"><div class=\"tile\">%s</div><h3>%s</h3>"
+        "<p>%s</p><p class=\"price\">$%.2f / mo</p></div>" % (icon, name, blurb, price)
+        for icon, name, blurb, price in PRODUCTS
+    )
+    return layout(
+        "<main class=\"section\"><h2>Products</h2>"
+        "<p class=\"lead\">Pick a plan. Cancel by emailing a person.</p>"
+        "<div class=\"grid\">%s</div></main>" % cards
+    )
+
+
+def page_search(query):
+    # VULN: reflected XSS -- the query is echoed without escaping.
+    needle = query.strip().lower()
+    matches = [
+        (icon, name, blurb, price)
+        for icon, name, blurb, price in PRODUCTS
+        if needle and needle in name.lower() or needle and needle in blurb.lower()
+    ]
+    if matches:
+        results = "".join(
+            "<div class=\"card\"><div class=\"tile\">%s</div><h3>%s</h3>"
+            "<p>%s</p><p class=\"price\">$%.2f / mo</p></div>"
+            % (icon, name, blurb, price)
+            for icon, name, blurb, price in matches
+        )
+        body = "<div class=\"grid\">%s</div>" % results
+    else:
+        body = (
+            "<div class=\"empty\"><div class=\"big\">🔍</div>"
+            "No products matched your query.</div>"
+        )
+    return layout(
+        "<main class=\"section\"><h2>Search</h2>"
+        "<p class=\"lead\">Search results for: <b>%s</b></p>"
+        "<form method=\"get\" action=\"/search\" class=\"card\" "
+        "style=\"padding:16px;display:flex;gap:10px;flex-wrap:wrap\">"
+        "<input name=\"q\" placeholder=\"Search the catalog...\" "
+        "value=\"%s\" style=\"flex:1;min-width:200px;padding:11px 13px;"
+        "font-size:15px;border:1px solid var(--line);border-radius:10px\">"
+        "<button class=\"btn btn-primary\" type=\"submit\">Search</button>"
+        "</form>%s</main>" % (query, query, body)
+    )
+
+
+def page_login(error=False):
+    message = (
+        "<div class=\"alert alert-error\">Invalid username or password.</div>"
+        if error
+        else ""
+    )
+    return layout(
+        "<main class=\"auth\"><div class=\"card\">"
+        "<h1>Sign in</h1>"
+        "<p class=\"sub\">Welcome back. Your vault missed you.</p>"
+        "%s"
+        "<form method=\"post\" action=\"/login\">"
+        "<div class=\"field\"><label for=\"username\">Username</label>"
+        "<input id=\"username\" name=\"username\" placeholder=\"you@greenvault.example\" "
+        "autofocus></div>"
+        "<div class=\"field\"><label for=\"password\">Password</label>"
+        "<input id=\"password\" name=\"password\" type=\"password\" "
+        "placeholder=\"••••••••\"></div>"
+        "<button class=\"btn btn-primary btn-block\" type=\"submit\">Sign in</button>"
+        "</form>"
+        "<p class=\"sub\" style=\"margin-top:18px;margin-bottom:0\">"
+        "Forgot your password? Mail <span class=\"mono\">"
+        "it-support@greenvault.example</span>.</p>"
+        "</div></main>" % message
+    )
+
+
+def page_home(user):
+    return layout(
+        "<main class=\"dash\">"
+        "<div class=\"dash-head\"><div><h1 style=\"font-size:24px\">"
+        "Welcome back, %s</h1>"
+        "<p style=\"color:var(--muted);margin:0\">Everything looks quiet in "
+        "your vaults.</p></div>"
+        "<span class=\"badge\">&#9679; active</span></div>"
+        "<div class=\"stats\">"
+        "<div class=\"stat\"><div class=\"k\">Vaults</div>"
+        "<div class=\"v\">3</div></div>"
+        "<div class=\"stat\"><div class=\"k\">Secrets</div>"
+        "<div class=\"v\">128</div></div>"
+        "<div class=\"stat\"><div class=\"k\">Plan</div>"
+        "<div class=\"v\">Team</div></div>"
+        "</div>"
+        "<div class=\"card\"><h3>Internal tools</h3>"
+        "<p style=\"margin-bottom:10px\">For staff eyes only:</p>"
+        "<p style=\"margin:0\"><a href=\"/ping?host=127.0.0.1\">Health check</a> "
+        "&middot; <a href=\"/user?id=1\">Profile API</a> &middot; "
+        "<a href=\"/products\">Products</a></p></div>"
+        "</main>" % user
+    )
+
+
+def page_forbidden():
+    return layout(
+        "<main class=\"auth\"><div class=\"card center\">"
+        "<h1>403</h1><p class=\"sub\" style=\"margin-bottom:0\">"
+        "Admins only. You are clearly not an admin.</p></div></main>"
+    )
+
+
+def page_not_found(path):
+    return layout(
+        "<main class=\"auth\"><div class=\"card center\">"
+        "<h1>404</h1><p class=\"sub\" style=\"margin-bottom:0\">"
+        "Nothing lives at <span class=\"mono\">%s</span>.</p></div></main>" % path
+    )
+
+
+def page_error(error):
+    return layout(
+        "<main class=\"auth\"><div class=\"card\">"
+        "<h1>500</h1><p class=\"sub\" style=\"margin-bottom:0\">"
+        "Something broke: <span class=\"mono\">%s</span></p></div></main>" % error
+    )
+
+
+# --------------------------------------------------------------------------
+# storage
+# --------------------------------------------------------------------------
 
 
 def init_db():
@@ -163,13 +437,17 @@ class LabHandler(BaseHTTPRequestHandler):
         params = parse_qs(parsed.query, keep_blank_values=True)
 
         if route == "/":
-            return self.page_login()
+            if "session=" in self.headers.get("Cookie", ""):
+                return self._redirect("/home")
+            return self._reply(200, page_landing())
+        if route == "/products":
+            return self._reply(200, page_products())
         if route == "/login":
-            return self.page_login()
+            return self._reply(200, page_login())
         if route == "/home":
             return self.page_home()
         if route == "/search":
-            return self.page_search(params)
+            return self._reply(200, page_search(params.get("q", [""])[0]))
         if route == "/user":
             return self.api_user(params)
         if route == "/ping":
@@ -179,7 +457,7 @@ class LabHandler(BaseHTTPRequestHandler):
         if route == "/boom":
             return self.api_boom(params)
         if route == "/admin":
-            return self._reply(403, "<h1>403</h1><p>admin only</p>")
+            return self._reply(403, page_forbidden())
         if route == "/robots.txt":
             return self._reply(200, ROBOTS, "text/plain; charset=utf-8")
         if route == "/.env":
@@ -188,10 +466,7 @@ class LabHandler(BaseHTTPRequestHandler):
             return self._reply(200, GIT_CONFIG, "text/plain; charset=utf-8")
         if route == "/.well-known/hackwatch":
             return self._reply(200, LAB_MARKER, "application/json")
-        return self._reply(
-            404,
-            page_head("404") + "<h1>404</h1><p>not found: %s</p>" % route,
-        )
+        return self._reply(404, page_not_found(route))
 
     def do_POST(self):
         parsed = urlparse(self.path)
@@ -201,60 +476,16 @@ class LabHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/login":
             return self.api_login(params)
-        self._reply(404, "<h1>404</h1><p>no such endpoint</p>")
+        self._reply(404, page_not_found(parsed.path))
 
     # --------------------------------------------------------------------- pages
-
-    def page_login(self):
-        if "session=" in self.headers.get("Cookie", ""):
-            return self._redirect("/home")
-        body = page_head("GreenVault") + (
-            "<h1>GreenVault&trade; Customer Portal</h1>"
-            "<p class=\"muted\">dev instance &middot; internal use only</p>"
-            "<form method=\"post\" action=\"/login\">"
-            "<input name=\"username\" placeholder=\"username\" autofocus>"
-            "<input name=\"password\" placeholder=\"password\" type=\"password\">"
-            "<button type=\"submit\">sign in</button>"
-            "</form>"
-            "<p class=\"muted\">forgot your password? mail it-support@greenvault.example</p>"
-            "</body></html>"
-        )
-        return self._reply(200, body)
 
     def page_home(self):
         cookie = self.headers.get("Cookie", "")
         if "session=" not in cookie:
             return self._redirect("/")
         user = cookie.split("session=", 1)[1].split(";", 1)[0]
-        body = page_head("Home") + (
-            "<h1>Welcome, %s</h1>" % user
-        ) + (
-            "<div class=\"box\">"
-            "<p>account status: <b>active</b></p>"
-            "<p class=\"muted\">internal tools: "
-            "<a href=\"/ping?host=127.0.0.1\">health check</a> &middot; "
-            "<a href=\"/user?id=1\">profile</a></p>"
-            "</div>"
-            "</body></html>"
-        )
-        return self._reply(200, body)
-
-    def page_search(self, params):
-        query = params.get("q", [""])[0]
-        # VULN: reflected XSS -- the query is echoed without escaping.
-        body = page_head("Search") + (
-            "<h1>Search results for: %s</h1>" % query
-        ) + (
-            "<div class=\"box\">"
-            "<p>no products matched your query.</p>"
-            "<form method=\"get\" action=\"/search\">"
-            "<input name=\"q\" placeholder=\"search the catalog\">"
-            "<button type=\"submit\">search</button>"
-            "</form>"
-            "</div>"
-            "</body></html>"
-        )
-        return self._reply(200, body)
+        return self._reply(200, page_home(user))
 
     # ------------------------------------------------------------------ the vulns
 
@@ -272,7 +503,7 @@ class LabHandler(BaseHTTPRequestHandler):
             conn.close()
         except sqlite3.Error as error:
             self.log_message("sql error: %s", error)
-            return self._reply(500, "<h1>500</h1><p>%s</p>" % error)
+            return self._reply(500, page_error(error))
         if rows:
             _, name, role = rows[0]
             return self._redirect(
@@ -283,9 +514,7 @@ class LabHandler(BaseHTTPRequestHandler):
                     "X-Role": role,
                 },
             )
-        return self._reply(401, page_head("Denied")
-                           + "<h1>401</h1><p>invalid credentials</p>",
-                           extra={"X-Auth": "denied"})
+        return self._reply(401, page_login(error=True), extra={"X-Auth": "denied"})
 
     def api_user(self, params):
         ident = params.get("id", ["1"])[0]

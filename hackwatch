@@ -27,6 +27,7 @@ else
 fi
 
 if sleep 0.1 2>/dev/null; then PAUSE="sleep 0.15"; else PAUSE="sleep 1"; fi
+if sleep 0.02 2>/dev/null; then TYPE_SLEEP="sleep 0.02"; else TYPE_SLEEP=""; fi
 
 die()  { printf '%s\n' "${C_RED}hackwatch: $*${C_RESET}" >&2; exit 1; }
 info() { printf '%s\n' "${C_CYAN}::$*${C_RESET}"; }
@@ -116,6 +117,27 @@ matrix() {
     done
 }
 
+# --- cinema -----------------------------------------------------------------
+
+# Typewriter: prints ASCII text character by character. Falls back to a plain
+# line when colours are off or the shell cannot sleep fractions of a second.
+typeout() { # $1=color $2=text
+    color="$1"
+    text="$2"
+    if [ "$PLAIN" = "1" ] || [ -z "$TYPE_SLEEP" ]; then
+        printf '%s%s%s\n' "$color" "$text" "$C_RESET"
+        return
+    fi
+    printf '%s' "$color"
+    rest="$text"
+    while [ -n "$rest" ]; do
+        printf '%s' "$rest" | cut -c1 | tr -d '\n'
+        rest=$(printf '%s' "$rest" | cut -c2-)
+        $TYPE_SLEEP
+    done
+    printf '%s\n' "$C_RESET"
+}
+
 wait_down() { # seconds; progress on stderr, verdict on stdout
     limit="${1:-15}"
     i=0
@@ -152,6 +174,8 @@ usage: hackwatch <command> [url] [args]
   lfi <path>       read a file off the target (path traversal)
   shell            interactive shell over the command injection
   nuke --yes       wipe the database and kill the server
+  auto --yes       full chain: recon, sqli, loot, nuke. no stops.
+                   (`hack` runs this: one word, total compromise)
   banner           print the banner
   help             this text
 
@@ -293,8 +317,38 @@ cmd_nuke() {
     ensure_lab
 
     banner
-    printf '%s\n' "${C_RED}  TARGET: $URL${C_RESET}"
-    printf '%s\n' "${C_RED}  THIS KILLS THE LAB SERVER.${C_RESET}"
+    nuke_fire
+}
+
+cmd_auto() {
+    confirm=0
+    for arg in "$@"; do [ "$arg" = "--yes" ] && confirm=1; done
+    [ "$confirm" = "1" ] || die "auto ends with nuke: re-run with --yes"
+    ensure_lab
+
+    banner
+    printf '\n'
+    typeout "$C_RED" "TARGET: $URL"
+    typeout "$C_RED" "ONE WORD. TOTAL COMPROMISE."
+    printf '\n'
+    wrist_notify "hack started: $URL"
+
+    info "stage 1/4: mapping the target"
+    cmd_recon || return 1
+    $PAUSE
+    info "stage 2/4: forcing the door"
+    cmd_sqli || return 1
+    $PAUSE
+    info "stage 3/4: taking everything"
+    cmd_loot || return 1
+    $PAUSE
+    info "stage 4/4: dropping the site"
+    nuke_fire
+}
+
+nuke_fire() {
+    typeout "$C_RED" "  TARGET: $URL"
+    typeout "$C_RED" "  THIS KILLS THE LAB SERVER."
     printf '\n'
 
     info "reading /.env for the database path"
@@ -382,6 +436,7 @@ main() {
         lfi)            cmd_lfi "$@" ;;
         shell)          cmd_shell ;;
         nuke)           cmd_nuke "$@" ;;
+        auto)           cmd_auto "$@" ;;
         *)              printf '%s\n' "${C_RED}hackwatch: unknown command: $cmd${C_RESET}"; cmd_help; exit 1 ;;
     esac
 }

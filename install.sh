@@ -9,10 +9,11 @@ here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 dest="${1:-${HOME}/.local/bin}"
 
 mkdir -p "$dest"
-cp "$here/hackwatch" "$dest/hackwatch"
-chmod +x "$dest/hackwatch"
-
-printf 'installed %s\n' "$dest/hackwatch"
+for tool in hackwatch hack; do
+    cp "$here/$tool" "$dest/$tool"
+    chmod +x "$dest/$tool"
+    printf 'installed %s\n' "$dest/$tool"
+done
 case ":${PATH}:" in
     *":$dest:"*) ;;
     *) printf 'note: %s is not on your PATH\n' "$dest" ;;

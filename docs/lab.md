@@ -191,3 +191,7 @@ recon                 -> finds /.env
                       -> database gone, process gone
 status                -> DOWN
 ```
+
+`hackwatch auto --yes` (or just `hack`) runs the whole chain with no stops:
+recon, sqli, loot, then the nuke above. Key lines are typed out character by
+character unless `HACKWATCH_PLAIN=1` is set.

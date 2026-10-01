@@ -86,6 +86,7 @@ hackwatch loot                   # kullanıcı tablosunu dök
 hackwatch nuke --yes             # DB'yi sil, sunucuyu öldür
 ```
 
+Ya da adımları atla: `hack` tam zinciri duraksız çalıştırır ve siteyi düşürür.
 Saatte URL yazmak eziyet olduğu için `target` adresi hatırlar.
 
 ## Komutlar
@@ -101,6 +102,8 @@ Saatte URL yazmak eziyet olduğu için `target` adresi hatırlar.
 | `hackwatch lfi <path>` | hedeften dosya oku (path traversal) |
 | `hackwatch shell` | command injection üzerinden interaktif shell |
 | `hackwatch nuke --yes` | veritabanını sil, sunucuyu öldür |
+| `hackwatch auto --yes` | duraksız tam zincir: recon, sqli, loot, nuke |
+| `hack` | `auto --yes` ile aynı: tek kelime, tam kompromi |
 | `hackwatch banner` | banner yazdır |
 
 Ortam: `HACKWATCH_PLAIN=1` rengi kapatır, `HACKWATCH_COLOR=1` çıktı boruya
