@@ -43,9 +43,15 @@ wrist_say()     { have wt-tts     && wt-tts "$1" >/dev/null 2>&1 & }
 
 # --- state ----------------------------------------------------------------
 
-TARGET_FILE="${HOME:-/tmp}/.hackwatch_target"
-TMP=$(mktemp -d 2>/dev/null || echo "/tmp/hackwatch.$$")
-mkdir -p "$TMP"
+TARGET_FILE="${HOME:-${TMPDIR:-/tmp}}/.hackwatch_target"
+TMP_BASE="${TMPDIR:-/tmp}"
+TMP=$(mktemp -d "$TMP_BASE/hackwatch.XXXXXX" 2>/dev/null) \
+    || TMP=$(mktemp -d 2>/dev/null) \
+    || TMP="$TMP_BASE/hackwatch.$$"
+mkdir -p "$TMP" 2>/dev/null || {
+    printf '%s\n' "hackwatch: cannot create temp dir under $TMP_BASE" >&2
+    exit 1
+}
 cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT INT TERM
 
